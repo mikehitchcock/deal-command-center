@@ -1,5 +1,39 @@
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-requests==2.31.0
-beautifulsoup4==4.12.2
-python-multipart==0.0.6
+async function generateReport() {
+            if (!currentAnalysis || !currentAnalysis.analysis) {
+                showStatus('No analysis to report. Please run analysis first.', 'error');
+                return;
+            }
+
+            try {
+                showStatus('📄 Generating professional PDF report...', 'success');
+                
+                const response = await fetch(`${API_BASE_URL}/generate-report`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(currentAnalysis)
+                });
+
+                if (response.ok) {
+                    // Create download link for PDF
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.style.display = 'none';
+                    a.href = url;
+                    a.download = `Deal_Analysis_${currentAnalysis.dealData.address.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    
+                    showStatus('✅ Professional PDF report downloaded successfully!', 'success');
+                } else {
+                    const error = await response.json();
+                    showStatus(`Error generating report: ${error.detail}`, 'error');
+                }
+                
+            } catch (error) {
+                showStatus('Error generating PDF report. Please try again.', 'error');
+            }
+        }
