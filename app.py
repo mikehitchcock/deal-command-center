@@ -27,8 +27,8 @@ GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
 REALTY_MOLE_API_KEY = os.getenv("REALTY_MOLE_API_KEY")
 
 # For immediate testing, uncomment and add your keys here:
-# GOOGLE_MAPS_API_KEY = "your_google_maps_api_key_here"
-# REALTY_MOLE_API_KEY = "your_realty_mole_api_key_here"
+# GOOGLE_MAPS_API_KEY = "AIzaSyCJ9LhiRJQD3CQocXmtLNEz7hEBT4GvTeY"
+# REALTY_MOLE_API_KEY = "fcdb68d4d0e9422d80e45a147e67596f"
 
 # Data models
 class AddressSearchRequest(BaseModel):
