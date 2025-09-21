@@ -134,6 +134,18 @@ async def get_property_details(request: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Property lookup failed: {str(e)}")
 
+@app.post("/property-details") 
+async def get_property_details(request: dict):
+    # ... existing code here ...
+
+# ADD THIS NEW ENDPOINT HERE:
+@app.get("/debug-env")
+async def debug_env():
+    return {
+        "google_api_key": "SET" if GOOGLE_MAPS_API_KEY else "NOT SET",
+        "realty_mole_key": "SET" if REALTY_MOLE_API_KEY else "NOT SET",
+    }
+
 def fetch_realty_mole_data(address: str) -> Dict:
     """Fetch property data from RealtyMole API using requests"""
     
