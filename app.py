@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 import requests
 import json
@@ -21,6 +21,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Environment variables for API keys
+# Replace these with your actual API keys for testing
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
+REALTY_MOLE_API_KEY = os.getenv("REALTY_MOLE_API_KEY")
+
+# For immediate testing, uncomment and add your keys here:
+# GOOGLE_MAPS_API_KEY = "your_google_maps_api_key_here"
+# REALTY_MOLE_API_KEY = "your_realty_mole_api_key_here"
+
+# Data models
+class AddressSearchRequest(BaseModel):
+    query: str
+    limit: int = 5
+
+class PropertyAnalysisRequest(BaseModel):
+    address: str
+    manual_comps: Optional[List[Dict]] = []
+
 # Serve the HTML app at root
 @app.get("/", response_class=HTMLResponse)
 async def serve_app():
@@ -34,22 +52,21 @@ async def serve_app():
                 <h1>Deal Command Center API</h1>
                 <p>API is running. Upload index.html to see the interface.</p>
                 <p><a href="/docs">View API Documentation</a></p>
+                <p><a href="/debug-env">Debug Environment Variables</a></p>
             </body>
         </html>
         """)
 
-# Environment variables for API keys
-GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
-REALTY_MOLE_API_KEY = os.getenv("REALTY_MOLE_API_KEY")
-
-# Data models
-class AddressSearchRequest(BaseModel):
-    query: str
-    limit: int = 5
-
-class PropertyAnalysisRequest(BaseModel):
-    address: str
-    manual_comps: Optional[List[Dict]] = []
+# Debug endpoint to check environment variables
+@app.get("/debug-env")
+async def debug_env():
+    return {
+        "google_api_key": "SET" if GOOGLE_MAPS_API_KEY else "NOT SET",
+        "realty_mole_key": "SET" if REALTY_MOLE_API_KEY else "NOT SET",
+        "google_key_length": len(GOOGLE_MAPS_API_KEY) if GOOGLE_MAPS_API_KEY else 0,
+        "realty_key_length": len(REALTY_MOLE_API_KEY) if REALTY_MOLE_API_KEY else 0,
+        "environment_variables": [key for key in os.environ.keys() if 'API' in key or 'KEY' in key]
+    }
 
 @app.post("/search-addresses")
 async def search_addresses(request: AddressSearchRequest):
@@ -80,6 +97,7 @@ async def search_addresses(request: AddressSearchRequest):
                 })
             return {"suggestions": suggestions}
         else:
+            print(f"Google API error: {data.get('status')} - {data.get('error_message', 'Unknown error')}")
             return {"suggestions": mock_address_search(request.query, request.limit)}
                     
     except Exception as e:
@@ -134,18 +152,6 @@ async def get_property_details(request: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Property lookup failed: {str(e)}")
 
-@app.post("/property-details") 
-async def get_property_details(request: dict):
-    # ... existing code here ...
-
-# ADD THIS NEW ENDPOINT HERE:
-@app.get("/debug-env")
-async def debug_env():
-    return {
-        "google_api_key": "SET" if GOOGLE_MAPS_API_KEY else "NOT SET",
-        "realty_mole_key": "SET" if REALTY_MOLE_API_KEY else "NOT SET",
-    }
-
 def fetch_realty_mole_data(address: str) -> Dict:
     """Fetch property data from RealtyMole API using requests"""
     
@@ -179,6 +185,9 @@ def fetch_realty_mole_data(address: str) -> Dict:
                     "assessed_value": prop.get("assessedValue"),
                     "tax_amount": prop.get("taxAmount")
                 }
+        else:
+            print(f"RealtyMole API returned status code: {response.status_code}")
+            print(f"Response: {response.text}")
         
         return None
         
