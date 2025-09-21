@@ -1,12 +1,10 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 import requests
 import json
 import os
-import asyncio
-import aiohttp
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 import statistics
@@ -24,13 +22,21 @@ app.add_middleware(
 )
 
 # Serve the HTML app at root
-@app.get("/")
+@app.get("/", response_class=HTMLResponse)
 async def serve_app():
     try:
-        with open("index.html", "r") as f:
-            return FileResponse("index.html", media_type="text/html")
+        with open("index.html", "r", encoding="utf-8") as f:
+            return HTMLResponse(content=f.read())
     except FileNotFoundError:
-        return {"message": "Deal Command Center API is running"}
+        return HTMLResponse(content="""
+        <html>
+            <body>
+                <h1>Deal Command Center API</h1>
+                <p>API is running. Upload index.html to see the interface.</p>
+                <p><a href="/docs">View API Documentation</a></p>
+            </body>
+        </html>
+        """)
 
 # Environment variables for API keys
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")
@@ -50,7 +56,6 @@ async def search_addresses(request: AddressSearchRequest):
     """Smart address autocomplete with Google Places integration"""
     
     if not GOOGLE_MAPS_API_KEY:
-        # Return mock data for development
         return {"suggestions": mock_address_search(request.query, request.limit)}
     
     try:
@@ -62,21 +67,20 @@ async def search_addresses(request: AddressSearchRequest):
             'key': GOOGLE_MAPS_API_KEY
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, params=params) as response:
-                data = await response.json()
-                
-                if data.get('status') == 'OK':
-                    suggestions = []
-                    for prediction in data.get('predictions', [])[:request.limit]:
-                        suggestions.append({
-                            'address': prediction['structured_formatting']['main_text'],
-                            'formatted_address': prediction['description'],
-                            'place_id': prediction['place_id']
-                        })
-                    return {"suggestions": suggestions}
-                else:
-                    return {"suggestions": mock_address_search(request.query, request.limit)}
+        response = requests.get(url, params=params, timeout=10)
+        data = response.json()
+        
+        if data.get('status') == 'OK':
+            suggestions = []
+            for prediction in data.get('predictions', [])[:request.limit]:
+                suggestions.append({
+                    'address': prediction['structured_formatting']['main_text'],
+                    'formatted_address': prediction['description'],
+                    'place_id': prediction['place_id']
+                })
+            return {"suggestions": suggestions}
+        else:
+            return {"suggestions": mock_address_search(request.query, request.limit)}
                     
     except Exception as e:
         print(f"Address search error: {e}")
@@ -118,7 +122,7 @@ async def get_property_details(request: dict):
         # Try RealtyMole API first
         if REALTY_MOLE_API_KEY:
             try:
-                property_data = await fetch_realty_mole_data(address)
+                property_data = fetch_realty_mole_data(address)
                 if property_data:
                     return property_data
             except Exception as e:
@@ -130,8 +134,8 @@ async def get_property_details(request: dict):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Property lookup failed: {str(e)}")
 
-async def fetch_realty_mole_data(address: str) -> Dict:
-    """Fetch property data from RealtyMole API"""
+def fetch_realty_mole_data(address: str) -> Dict:
+    """Fetch property data from RealtyMole API using requests"""
     
     url = "https://realty-mole-property-api.p.rapidapi.com/properties"
     
@@ -142,29 +146,33 @@ async def fetch_realty_mole_data(address: str) -> Dict:
     
     params = {"address": address}
     
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, params=params) as response:
-            if response.status == 200:
-                data = await response.json()
-                
-                # Extract relevant property info
-                if data and len(data) > 0:
-                    prop = data[0]
-                    return {
-                        "address": prop.get("formattedAddress", address),
-                        "year_built": prop.get("yearBuilt"),
-                        "square_feet": prop.get("squareFootage"),
-                        "bedrooms": prop.get("bedrooms"),
-                        "bathrooms": prop.get("bathrooms"),
-                        "property_type": prop.get("propertyType", "Single Family"),
-                        "lot_size": prop.get("lotSize"),
-                        "last_sale_date": prop.get("lastSaleDate"),
-                        "last_sale_price": prop.get("lastSalePrice"),
-                        "assessed_value": prop.get("assessedValue"),
-                        "tax_amount": prop.get("taxAmount")
-                    }
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        
+        if response.status_code == 200:
+            data = response.json()
             
-            return None
+            if data and len(data) > 0:
+                prop = data[0]
+                return {
+                    "address": prop.get("formattedAddress", address),
+                    "year_built": prop.get("yearBuilt"),
+                    "square_feet": prop.get("squareFootage"),
+                    "bedrooms": prop.get("bedrooms"),
+                    "bathrooms": prop.get("bathrooms"),
+                    "property_type": prop.get("propertyType", "Single Family"),
+                    "lot_size": prop.get("lotSize"),
+                    "last_sale_date": prop.get("lastSaleDate"),
+                    "last_sale_price": prop.get("lastSalePrice"),
+                    "assessed_value": prop.get("assessedValue"),
+                    "tax_amount": prop.get("taxAmount")
+                }
+        
+        return None
+        
+    except Exception as e:
+        print(f"RealtyMole API request failed: {e}")
+        return None
 
 def generate_mock_property_data(address: str) -> Dict:
     """Generate realistic property data for West Michigan"""
@@ -322,7 +330,7 @@ def generate_realistic_comps(property_data: Dict, address: str) -> List[Dict]:
 
 @app.post("/ai-analysis")
 async def run_ai_analysis(request: PropertyAnalysisRequest):
-    """Run statistical property analysis (simplified version)"""
+    """Run statistical property analysis"""
     try:
         # Get property details
         property_data = await get_property_details({"address": request.address})
@@ -369,7 +377,7 @@ async def run_ai_analysis(request: PropertyAnalysisRequest):
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 def calculate_statistical_arv(property_data: Dict, comps: List[Dict]) -> Dict:
-    """Calculate ARV using statistical methods (without ML libraries)"""
+    """Calculate ARV using statistical methods"""
     
     subject_sqft = property_data.get("square_feet", 1200)
     subject_beds = property_data.get("bedrooms", 3)
@@ -509,31 +517,31 @@ def generate_insights(market_adjustments: Dict, comps: List[Dict], confidence: f
     # Market trend
     trend = market_adjustments.get('market_trend', 1.0)
     if trend > 1.02:
-        insights.append(f"Strong market appreciation: +{(trend-1)*100:.1f}% over recent months")
+        insights.append(f"Market appreciation: +{(trend-1)*100:.1f}% recent trend")
     elif trend < 0.98:
-        insights.append(f"Market softening: -{(1-trend)*100:.1f}% over recent months")
+        insights.append(f"Market softening: -{(1-trend)*100:.1f}% recent trend")
     else:
         insights.append("Stable market conditions")
     
     # Location factor
     location = market_adjustments.get('location', 1.0)
     if location > 1.0:
-        insights.append(f"Location premium: +{(location-1)*100:.0f}% for area desirability")
+        insights.append(f"Location premium: +{(location-1)*100:.0f}% area adjustment")
     elif location < 1.0:
-        insights.append(f"Location discount: -{(1-location)*100:.0f}% for area factors")
+        insights.append(f"Location discount: -{(1-location)*100:.0f}% area adjustment")
     
     # Comp quality
     avg_distance = statistics.mean([c["distance_miles"] for c in comps])
     if avg_distance < 0.5:
         insights.append(f"Excellent comp proximity: avg {avg_distance:.1f} miles")
     elif avg_distance > 1.0:
-        insights.append(f"Wider comp search: avg {avg_distance:.1f} miles")
+        insights.append(f"Moderate comp distance: avg {avg_distance:.1f} miles")
     
     # Confidence insight
     if confidence > 0.9:
         insights.append("High confidence prediction with quality comparable sales")
     elif confidence < 0.7:
-        insights.append("Moderate confidence - consider additional market research")
+        insights.append("Moderate confidence - consider additional research")
     
     return insights
 
@@ -557,19 +565,19 @@ def calculate_offer_strategies(arv: int, property_data: Dict) -> Dict:
     
     strategies = {
         "ai_optimized": {
-            "name": "🤖 Statistical Primary",
+            "name": "Statistical Primary",
             "rule": "65% Rule + Market Adjustments",
             "offer": max(0, int(arv * 0.65 - repair_estimate - margin_of_safety)),
             "description": "Data-driven optimized offer"
         },
         "wholesale": {
-            "name": "🥈 Conservative Wholesale", 
+            "name": "Conservative Wholesale", 
             "rule": "70% Rule",
             "offer": max(0, int(arv * 0.70 - repair_estimate)),
             "description": "Safe wholesale margin"
         },
         "brrr": {
-            "name": "🥉 BRRR Strategy",
+            "name": "BRRR Strategy",
             "rule": "75% Rule", 
             "offer": max(0, int(arv * 0.75 - repair_estimate)),
             "description": "Buy, rehab, rent, refinance"
