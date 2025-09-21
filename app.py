@@ -70,64 +70,50 @@ async def debug_env():
 
 @app.post("/search-addresses")
 async def search_addresses(request: AddressSearchRequest):
-    """Smart address autocomplete with Google Places integration"""
+    """Smart address autocomplete with Google Places NEW API"""
     
     if not GOOGLE_MAPS_API_KEY:
         return {"suggestions": mock_address_search(request.query, request.limit)}
     
     try:
-        url = "https://maps.googleapis.com/maps/api/place/autocomplete/json"
-        params = {
-            'input': request.query,
-            'types': 'address',
-            'components': 'country:US',
-            'key': GOOGLE_MAPS_API_KEY
+        # New Places API endpoint
+        url = "https://places.googleapis.com/v1/places:autocomplete"
+        
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Goog-Api-Key': GOOGLE_MAPS_API_KEY
         }
         
-        response = requests.get(url, params=params, timeout=10)
-        data = response.json()
+        data = {
+            'input': request.query,
+            'locationRestriction': {
+                'country': 'US'
+            },
+            'includedPrimaryTypes': ['street_address', 'subpremise'],
+            'languageCode': 'en'
+        }
         
-        if data.get('status') == 'OK':
+        response = requests.post(url, headers=headers, json=data, timeout=10)
+        result = response.json()
+        
+        if response.status_code == 200 and 'suggestions' in result:
             suggestions = []
-            for prediction in data.get('predictions', [])[:request.limit]:
-                suggestions.append({
-                    'address': prediction['structured_formatting']['main_text'],
-                    'formatted_address': prediction['description'],
-                    'place_id': prediction['place_id']
-                })
+            for suggestion in result.get('suggestions', [])[:request.limit]:
+                if 'placePrediction' in suggestion:
+                    pred = suggestion['placePrediction']
+                    suggestions.append({
+                        'address': pred['text']['text'].split(',')[0],  # First part before comma
+                        'formatted_address': pred['text']['text'],
+                        'place_id': pred['placeId']
+                    })
             return {"suggestions": suggestions}
         else:
-            print(f"Google API error: {data.get('status')} - {data.get('error_message', 'Unknown error')}")
+            print(f"Google New Places API error: {response.status_code} - {result}")
             return {"suggestions": mock_address_search(request.query, request.limit)}
                     
     except Exception as e:
         print(f"Address search error: {e}")
         return {"suggestions": mock_address_search(request.query, request.limit)}
-
-def mock_address_search(query: str, limit: int) -> List[Dict]:
-    """Mock address search for development"""
-    base_num = query.split(' ')[0] if query.split(' ')[0].isdigit() else "1022"
-    
-    suggestions = []
-    streets = ["Kenneth St", "Oak Ave", "Main St", "Pine St", "Maple Ave"]
-    cities = [
-        ("Muskegon", "MI", "49441"),
-        ("Grand Rapids", "MI", "49503"),
-        ("Kalamazoo", "MI", "49007"),
-        ("Battle Creek", "MI", "49017")
-    ]
-    
-    for i, (street, (city, state, zip_code)) in enumerate(zip(streets, cities)):
-        if i >= limit:
-            break
-        address = f"{base_num} {street}, {city}, {state} {zip_code}"
-        suggestions.append({
-            'address': f"{base_num} {street}",
-            'formatted_address': address,
-            'place_id': f"mock_place_id_{i}"
-        })
-    
-    return suggestions
 
 @app.post("/property-details")
 async def get_property_details(request: dict):
